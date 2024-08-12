@@ -1,5 +1,5 @@
 Inspired by [xkcd 363](https://xkcd.com/363/)
-![[Pasted image 20240626214817.png]]
+
 # software
 iemand.ino
 Gratification first, so first get display running. Then updating using the button.
