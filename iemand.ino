@@ -2,6 +2,8 @@
 // 2024-07-01:
 // ESP32 based simple e-paper display with an rtc and a button
 // mostly sleeps, activates on button press to update screen to current date&time
+//
+// Sleep features learned from: https://randomnerdtutorials.com/esp32-external-wake-up-deep-sleep/
 
 #include <WiFi.h>  // we need wifi to get internet access
 #include <time.h>  // for time() ctime()
@@ -79,8 +81,7 @@ RTC_DATA_ATTR int bootCount = 0;
 int wakereason = wakeDefault;  // 0 = default, 1 = from button, 2 is from timer
 
 /*
-  Method to print and save the reason by which ESP32
-  has been awaken from sleep
+  Method to print and save the reason by which ESP32 woke from sleep
 */
 void print_wakeup_reason() {
   esp_sleep_wakeup_cause_t wakeup_reason;
@@ -150,14 +151,18 @@ void setup() {
     }
 
 
-    digitalWrite(ledPin, !digitalRead(buttonPin));
+    digitalWrite(ledPin, 1);
     updateDisplay();
     printTime();
-    digitalWrite(ledPin, !digitalRead(buttonPin));
+    digitalWrite(ledPin, 0);
   }
+  //updateTimeThroughWifi();
+  esp_deep_sleep_start();
+  Serial.println("This will never be printed");
+}
 
-
-  // Wifi
+void updateTimeThroughWifi() {
+    // Wifi
   // start network
   WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
@@ -185,24 +190,63 @@ void setup() {
     // Maybe there is a check function to know the time was updated?
     while (now < 1000000) {
       time(&now);
-      //Serial.print(now);
-      //Serial.print(" ");
     }
 
     localtime_r(&now, &tm);                                                                       // update the structure tm with the current time
-    rtc.setTime(tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);  //Initialize time
+    printTime();
+    //rtc.setTime(tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);  //Initialize time in RTC
+    printTime();
   }
-
-  esp_deep_sleep_start();
-  Serial.println("This will never be printed");
 }
 
 void printTime() {
+  // Print 2 lines, first time from time.h 'native' thingie.
   time(&now);              // read the current time
   localtime_r(&now, &tm);  // update the structure tm with the current time
-  Serial.print("year:");
+  Serial.print("NOW as time.h: year:");
   Serial.print(tm.tm_year + 1900);  // years since 1900
-  Serial.print("\tmonth:");
+  Serial.print(" month:");
+  Serial.print(tm.tm_mon + 1);  // January = 0 (!)
+  Serial.print("\tday:");
+  Serial.print(tm.tm_mday);  // day of month
+  Serial.print("\thour:");
+  Serial.print(tm.tm_hour);  // hours since midnight 0-23
+  Serial.print("\tmin:");
+  Serial.print(tm.tm_min);  // minutes after the hour 0-59
+  Serial.print("\tsec:");
+  Serial.print(tm.tm_sec);  // seconds after the minute 0-61*
+  Serial.print("\twday");
+  Serial.print(tm.tm_wday);  // days since Sunday 0-6
+  if (tm.tm_isdst == 1)      // Daylight Saving Time flag
+    Serial.print("\tDST");
+  else
+    Serial.print("\tstandard");
+  Serial.println();
+  
+  // Now from rtc
+  sTimeData_t sTime;
+  sTime = rtc.getRTCTime();
+  Serial.print("RTC as sTimeData: ");
+  Serial.print(sTime.year, DEC);//year
+  Serial.print('/');
+  Serial.print(sTime.month, DEC);//month
+  Serial.print('/');
+  Serial.print(sTime.day, DEC);//day
+  Serial.print(" (");
+  Serial.print(sTime.week);//week
+  Serial.print(") ");
+  Serial.print(sTime.hour, DEC);//hour
+  Serial.print(':');
+  Serial.print(sTime.minute, DEC);//minute
+  Serial.print(':');
+  Serial.print(sTime.second, DEC);//second
+  Serial.println(' ');
+  
+  // Now from rtc in a tm struct
+  tm = rtc.getRTCTimeastm();
+  Serial.print("RTC as time.h: year:");
+  Serial.print(tm.tm_year);  // years since 1900
+  Serial.print(" month:");
   Serial.print(tm.tm_mon + 1);  // January = 0 (!)
   Serial.print("\tday:");
   Serial.print(tm.tm_mday);  // day of month
@@ -226,11 +270,13 @@ void loop() {
 }
 
 void updateDisplay() {
-  sTimeData_t sTime;
-  sTime = rtc.getRTCTime();
+  tm = rtc.getRTCTimeastm();
 
   display.init(115200, true, 2, false);  // for Waveshare boards with "clever" reset circuit, 2ms reset pulse
   display.setRotation(3);
+
+  Serial.println("Update display.");
+  printTime();
 
   display.firstPage();
   do {
@@ -245,13 +291,13 @@ void updateDisplay() {
     display.print(" ");
     display.println(monthNames[tm.tm_mon]);
     display.setCursor(80, 90);
-    display.print(sTime.hour);  //hour
-    Serial.print("RTC hour: ");
-    Serial.println(sTime.hour);
+    display.print(tm.tm_hour);  //hour
     display.print(" : ");
-    display.print(sTime.minute);
-    display.print(" : ");
-    display.print(sTime.second);
+    // To avoid formatting voodoo on arduino.
+    if (tm.tm_hour < 10) display.print("0");
+    display.print(tm.tm_min);
+    
+    //display.print(" : ");
+    //display.print(tm.tm_sec);
   } while (display.nextPage());
-  digitalWrite(ledPin, !digitalRead(ledPin));
 }
